@@ -1,0 +1,19 @@
+{
+  "name": "mce-nano",
+  "version": "1.0.0",
+  "description": "mindcraft-ce-nano",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "mineflayer": "^4.32.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "openai": "^5.15.0"
+  }
+}

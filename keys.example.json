@@ -1,0 +1,8 @@
+{
+    "OPENAI_API_KEY": "",
+    "OPENROUTER_API_KEY": "",
+    "GEMINI_API_KEY": "",
+    "ANDY_API_KEY": "optional",
+    "POLLINATIONS_API_KEY": "optional",
+    "OLLAMA_API_KEY": "optional"
+}

@@ -1,0 +1,13 @@
+services:
+  mce-nano:
+    build: .
+    container_name: mce-nano-bot
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - .:/app
+    ports:
+      - "55916:55916"
+    restart: unless-stopped
+    # Uncomment if you want to override the default command
+    # command: ["node", "main.js"]
