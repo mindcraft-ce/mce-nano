@@ -355,35 +355,64 @@ function executeCommand(bot, command, params, username) {
 			const shouldChat = mainCallbacks && typeof mainCallbacks.shouldActionChatFeedback === 'function' ? mainCallbacks.shouldActionChatFeedback() : true;
 			if (giveTarget && giveTarget.entity) {
 				const itemName = params[1];
-				const amount = parseInt(params[2]) || 1;
-				const item = bot.inventory.items().find(i => i.name === itemName);
-				if (item && item.count >= amount) {
-					const msg = `Giving ${amount} ${itemName} to ${params[0]}`;
-					console.log(`[${bot.username}] ${msg}`);
-					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
-					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
-					// Move close to player first
-					bot.pathfinder.setGoal(new GoalNear(giveTarget.entity.position.x, giveTarget.entity.position.y, giveTarget.entity.position.z, 2));
-					bot.pathfinder.setGoal(null, true);
-					setTimeout(async () => {
-						try {
-							await bot.toss(item.type, null, amount);
-							const tossMsg = `Tossed ${amount} ${itemName}`;
-							console.log(`[${bot.username}] ${tossMsg}`);
-							if (shouldChat) bot.chat(`/msg ${username} ${tossMsg}`);
-							if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(tossMsg);
-						} catch (err) {
-							const failMsg = `Failed to give item: ${err.message}`;
-							console.log(`[${bot.username}] ${failMsg}`);
-							if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
-							if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
-						}
-					}, 2000);
+				if (itemName === '*' || itemName === 'all') {
+					// Give entire inventory
+					const items = bot.inventory.items();
+					if (items.length === 0) {
+						const msg = `Inventory is empty`;
+						console.log(`[${bot.username}] ${msg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					} else {
+						const msg = `Giving entire inventory to ${params[0]} (${items.length} items)`;
+						console.log(`[${bot.username}] ${msg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+						// Move close to player first
+						bot.pathfinder.setGoal(new GoalNear(giveTarget.entity.position.x, giveTarget.entity.position.y, giveTarget.entity.position.z, 2));
+						bot.pathfinder.setGoal(null, true);
+						setTimeout(() => {
+							for (const item of items) {
+								bot.toss(item.type, null, item.count).catch(err => {
+									const failMsg = `Failed to give ${item.name}: ${err.message}`;
+									console.log(`[${bot.username}] ${failMsg}`);
+									if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+								});
+							}
+						}, 2000);
+					}
 				} else {
-					const msg = `Don't have enough ${itemName} (need ${amount}, have ${item?.count || 0})`;
-					console.log(`[${bot.username}] ${msg}`);
-					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
-					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					const amount = parseInt(params[2]) || 1;
+					const item = bot.inventory.items().find(i => i.name === itemName);
+					if (item && item.count >= amount) {
+						const msg = `Giving ${amount} ${itemName} to ${params[0]}`;
+						console.log(`[${bot.username}] ${msg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+						// Move close to player first
+						bot.pathfinder.setGoal(new GoalNear(giveTarget.entity.position.x, giveTarget.entity.position.y, giveTarget.entity.position.z, 2));
+						bot.pathfinder.setGoal(null, true);
+						setTimeout(async () => {
+							try {
+								await bot.toss(item.type, null, amount);
+								const tossMsg = `Tossed ${amount} ${itemName}`;
+								console.log(`[${bot.username}] ${tossMsg}`);
+								if (shouldChat) bot.chat(`/msg ${username} ${tossMsg}`);
+								if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(tossMsg);
+							} catch (err) {
+								const failMsg = `Failed to give item: ${err.message}`;
+								console.log(`[${bot.username}] ${failMsg}`);
+								if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+								if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+							}
+						}, 2000);
+					} else {
+						const msg = `Don't have enough ${itemName} (need ${amount}, have ${item?.count || 0})`;
+						console.log(`[${bot.username}] ${msg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					}
 				}
 			} else {
 				const msg = `Player ${params[0]} not found`;
@@ -450,43 +479,90 @@ function executeCommand(bot, command, params, username) {
 			
 		case 'putInChest': {
 			const shouldChat = mainCallbacks && typeof mainCallbacks.shouldActionChatFeedback === 'function' ? mainCallbacks.shouldActionChatFeedback() : true;
-			const msg = `Putting ${params[1]} ${params[0]} in chest`;
-			console.log(`[${bot.username}] ${msg}`);
-			if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
-			if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
 			const chestBlock = bot.findBlock({
 				matching: (block) => block.name === 'chest' || block.name === 'trapped_chest',
 				maxDistance: 6
 			});
 			if (chestBlock) {
-				const putItem = bot.inventory.items().find(i => i.name === params[0]);
-				const putAmount = parseInt(params[1]) || 1;
-				if (putItem && putItem.count >= putAmount) {
-					bot.openChest(chestBlock).then(chest => {
-						chest.deposit(putItem.type, null, putAmount).then(() => {
-							const doneMsg = `Put ${putAmount} ${params[0]} in chest`;
-							console.log(`[${bot.username}] ${doneMsg}`);
-							if (shouldChat) bot.chat(`/msg ${username} ${doneMsg}`);
-							if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(doneMsg);
-							chest.close();
+				if (params[0] === '*' || params[0] === 'all') {
+					// Put entire inventory in chest
+					const items = bot.inventory.items();
+					if (items.length === 0) {
+						const msg = `Inventory is empty`;
+						console.log(`[${bot.username}] ${msg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					} else {
+						const msg = `Putting entire inventory in chest (${items.length} items)`;
+						console.log(`[${bot.username}] ${msg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+						bot.openChest(chestBlock).then(chest => {
+							let depositedCount = 0;
+							const depositNext = () => {
+								if (depositedCount >= items.length) {
+									const doneMsg = `Put entire inventory in chest`;
+									console.log(`[${bot.username}] ${doneMsg}`);
+									if (shouldChat) bot.chat(`/msg ${username} ${doneMsg}`);
+									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(doneMsg);
+									chest.close();
+									return;
+								}
+								const item = items[depositedCount];
+								chest.deposit(item.type, null, item.count).then(() => {
+									depositedCount++;
+									setTimeout(depositNext, 100); // Small delay between deposits
+								}).catch(err => {
+									const failMsg = `Failed to put ${item.name} in chest: ${err.message}`;
+									console.log(`[${bot.username}] ${failMsg}`);
+									if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+									depositedCount++;
+									setTimeout(depositNext, 100);
+								});
+							};
+							depositNext();
 						}).catch(err => {
-							const failMsg = `Failed to put item in chest: ${err.message}`;
+							const failMsg = `Failed to open chest: ${err.message}`;
 							console.log(`[${bot.username}] ${failMsg}`);
 							if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
 							if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
-							chest.close();
 						});
-					}).catch(err => {
-						const failMsg = `Failed to open chest: ${err.message}`;
+					}
+				} else {
+					const msg = `Putting ${params[1]} ${params[0]} in chest`;
+					console.log(`[${bot.username}] ${msg}`);
+					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					const putItem = bot.inventory.items().find(i => i.name === params[0]);
+					const putAmount = parseInt(params[1]) || 1;
+					if (putItem && putItem.count >= putAmount) {
+						bot.openChest(chestBlock).then(chest => {
+							chest.deposit(putItem.type, null, putAmount).then(() => {
+								const doneMsg = `Put ${putAmount} ${params[0]} in chest`;
+								console.log(`[${bot.username}] ${doneMsg}`);
+								if (shouldChat) bot.chat(`/msg ${username} ${doneMsg}`);
+								if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(doneMsg);
+								chest.close();
+							}).catch(err => {
+								const failMsg = `Failed to put item in chest: ${err.message}`;
+								console.log(`[${bot.username}] ${failMsg}`);
+								if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+								if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+								chest.close();
+							});
+						}).catch(err => {
+							const failMsg = `Failed to open chest: ${err.message}`;
+							console.log(`[${bot.username}] ${failMsg}`);
+							if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+							if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+						});
+					} else {
+						const failMsg = `Don't have enough ${params[0]}`;
 						console.log(`[${bot.username}] ${failMsg}`);
 						if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
 						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
-					});
-				} else {
-					const failMsg = `Don't have enough ${params[0]}`;
-					console.log(`[${bot.username}] ${failMsg}`);
-					if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
-					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+					}
 				}
 			} else {
 				const failMsg = `No chest found nearby`;
@@ -507,40 +583,82 @@ function executeCommand(bot, command, params, username) {
 				while (bot._takeFromChestQueue.length > 0) {
 					const { params, username } = bot._takeFromChestQueue.shift();
 					const shouldChat = mainCallbacks && typeof mainCallbacks.shouldActionChatFeedback === 'function' ? mainCallbacks.shouldActionChatFeedback() : true;
-					const msg = `Taking ${params[1]} ${params[0]} from chest`;
-					console.log(`[${bot.username}] ${msg}`);
-					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
-					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
 					const takeChestBlock = bot.findBlock({
 						matching: (block) => block.name === 'chest' || block.name === 'trapped_chest',
 						maxDistance: 6
 					});
 					if (takeChestBlock) {
-						const takeAmount = parseInt(params[1]) || 1;
 						try {
 							const chest = await bot.openChest(takeChestBlock);
-							const mcData2 = require('minecraft-data')(bot.version);
-							const itemType = mcData2.itemsByName[params[0]]?.id;
-							if (itemType) {
-								try {
-									await chest.withdraw(itemType, null, takeAmount);
-									const doneMsg = `Took ${takeAmount} ${params[0]} from chest`;
-									console.log(`[${bot.username}] ${doneMsg}`);
-									if (shouldChat) bot.chat(`/msg ${username} ${doneMsg}`);
-									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(doneMsg);
-								} catch (err) {
-									const failMsg = `Failed to take item from chest: ${err.message}`;
+							if (params[0] === '*' || params[0] === 'all') {
+								// Take all items from chest
+								const chestItems = chest.items();
+								if (chestItems.length === 0) {
+									const msg = `Chest is empty`;
+									console.log(`[${bot.username}] ${msg}`);
+									if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+								} else {
+									const msg = `Taking all items from chest (${chestItems.length} types)`;
+									console.log(`[${bot.username}] ${msg}`);
+									if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+									let withdrawnCount = 0;
+									const withdrawNext = () => {
+										if (withdrawnCount >= chestItems.length) {
+											const doneMsg = `Took all items from chest`;
+											console.log(`[${bot.username}] ${doneMsg}`);
+											if (shouldChat) bot.chat(`/msg ${username} ${doneMsg}`);
+											if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(doneMsg);
+											chest.close();
+											return;
+										}
+										const item = chestItems[withdrawnCount];
+										const mcData2 = require('minecraft-data')(bot.version);
+										const itemName = mcData2.items[item.type]?.name || `item_${item.type}`;
+										chest.withdraw(item.type, null, item.count).then(() => {
+											withdrawnCount++;
+											setTimeout(withdrawNext, 100); // Small delay between withdrawals
+										}).catch(err => {
+											const failMsg = `Failed to take ${itemName} from chest: ${err.message}`;
+											console.log(`[${bot.username}] ${failMsg}`);
+											if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+											if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+											withdrawnCount++;
+											setTimeout(withdrawNext, 100);
+										});
+									};
+									withdrawNext();
+								}
+							} else {
+								const msg = `Taking ${params[1]} ${params[0]} from chest`;
+								console.log(`[${bot.username}] ${msg}`);
+								if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+								if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+								const takeAmount = parseInt(params[1]) || 1;
+								const mcData2 = require('minecraft-data')(bot.version);
+								const itemType = mcData2.itemsByName[params[0]]?.id;
+								if (itemType) {
+									try {
+										await chest.withdraw(itemType, null, takeAmount);
+										const doneMsg = `Took ${takeAmount} ${params[0]} from chest`;
+										console.log(`[${bot.username}] ${doneMsg}`);
+										if (shouldChat) bot.chat(`/msg ${username} ${doneMsg}`);
+										if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(doneMsg);
+									} catch (err) {
+										const failMsg = `Failed to take item from chest: ${err.message}`;
+										console.log(`[${bot.username}] ${failMsg}`);
+										if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+										if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+									}
+								} else {
+									const failMsg = `Unknown item: ${params[0]}`;
 									console.log(`[${bot.username}] ${failMsg}`);
 									if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
 									if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
 								}
-							} else {
-								const failMsg = `Unknown item: ${params[0]}`;
-								console.log(`[${bot.username}] ${failMsg}`);
-								if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
-								if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+								chest.close();
 							}
-							chest.close();
 						} catch (err) {
 							const failMsg = `Failed to open chest: ${err.message}`;
 							console.log(`[${bot.username}] ${failMsg}`);
@@ -562,24 +680,48 @@ function executeCommand(bot, command, params, username) {
 			
 		case 'discard': {
 			const shouldChat = mainCallbacks && typeof mainCallbacks.shouldActionChatFeedback === 'function' ? mainCallbacks.shouldActionChatFeedback() : true;
-			const discardItem = bot.inventory.items().find(i => i.name === params[0]);
-			const discardAmount = parseInt(params[1]) || 1;
-			if (discardItem && discardItem.count >= discardAmount) {
-				const msg = `Discarding ${discardAmount} ${params[0]}`;
-				console.log(`[${bot.username}] ${msg}`);
-				if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
-				if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
-				bot.toss(discardItem.type, null, discardAmount).catch(err => {
-					const failMsg = `Failed to discard ${params[0]}: ${err.message}`;
-					console.log(`[${bot.username}] ${failMsg}`);
-					if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
-					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
-				});
+			if (params[0] === '*' || params[0] === 'all') {
+				// Discard entire inventory
+				const items = bot.inventory.items();
+				if (items.length === 0) {
+					const msg = `Inventory is empty`;
+					console.log(`[${bot.username}] ${msg}`);
+					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+				} else {
+					const msg = `Discarding entire inventory (${items.length} items)`;
+					console.log(`[${bot.username}] ${msg}`);
+					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					for (const item of items) {
+						bot.toss(item.type, null, item.count).catch(err => {
+							const failMsg = `Failed to discard ${item.name}: ${err.message}`;
+							console.log(`[${bot.username}] ${failMsg}`);
+							if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+							if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+						});
+					}
+				}
 			} else {
-				const msg = `Don't have enough ${params[0]} to discard`;
-				console.log(`[${bot.username}] ${msg}`);
-				if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
-				if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+				const discardItem = bot.inventory.items().find(i => i.name === params[0]);
+				const discardAmount = parseInt(params[1]) || 1;
+				if (discardItem && discardItem.count >= discardAmount) {
+					const msg = `Discarding ${discardAmount} ${params[0]}`;
+					console.log(`[${bot.username}] ${msg}`);
+					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+					bot.toss(discardItem.type, null, discardAmount).catch(err => {
+						const failMsg = `Failed to discard ${params[0]}: ${err.message}`;
+						console.log(`[${bot.username}] ${failMsg}`);
+						if (shouldChat) bot.chat(`/msg ${username} ${failMsg}`);
+						if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(failMsg);
+					});
+				} else {
+					const msg = `Don't have enough ${params[0]} to discard`;
+					console.log(`[${bot.username}] ${msg}`);
+					if (shouldChat) bot.chat(`/msg ${username} ${msg}`);
+					if (mainCallbacks && typeof mainCallbacks.pushAssistantMessage === 'function') mainCallbacks.pushAssistantMessage(msg);
+				}
 			}
 			break;
 		}

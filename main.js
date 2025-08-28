@@ -249,7 +249,7 @@ function createBotForConfig(botConfig) {
         }
 		async function handleUserMessage(username, message) {
 			console.log(`[${bot.username}] Request received from ${username}: ${message}`);
-			   conversation.push({ role: 'user', content: message });
+			   conversation.push({ role: 'user', content: `${username}: ${message}` });
 			   if (saveConversation) {
 				   try { fs.writeFileSync(conversationFile, JSON.stringify(conversation, null, 2)); } catch (e) {}
 			   }
