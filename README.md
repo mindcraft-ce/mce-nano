@@ -72,7 +72,7 @@ The open-source platform for crafting intelligent, collaborative agents in Minec
 
 1. **Clone the repo:**
    ```sh
-   git clone https://github.com/yourusername/mce-nano.git
+   git clone https://github.com/mindcraft-ce/mce-nano.git
    cd mce-nano
    ```
 
