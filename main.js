@@ -24,7 +24,7 @@ function replacePromptVariables(prompt, variables) {
 }
 
 // Command parser from agent.js
-const { parseAndExecuteCommands, handleInfoCommand, setMainCallbacks } = require('./agent');
+const { parseAndExecuteCommands, handleQueryCommand, setMainCallbacks } = require('./agent');
 
 // Load config.yml
 let config;
@@ -131,9 +131,46 @@ function createBotForConfig(botConfig) {
 	let bot;
 	let reconnectAttempted = false;
 	function createBot() {
-		   const actionChatFeedback = botConfig.action_chat_feedback !== false;
-		   const actionConversationFeedback = botConfig.action_conversation_feedback !== false;
-		   setMainCallbacks({
+		// Helper: send a message in the correct mode (public or msg)
+		function sendBotMessage(text, opts = {}) {
+			// opts: {replyMode, replyTo}
+			let mode = opts.replyMode || (usePublicChat ? 'public' : 'msg');
+			let to = opts.replyTo || bot.username;
+			if (mode === 'msg') {
+				bot.chat(`/msg ${to} ${text}`);
+			} else {
+				bot.chat(text);
+			}
+		}
+		// === Idle Timeout Feature ===
+		const idleTimeoutSeconds = botConfig.idle_timeout_seconds || 0;
+		const idleMessage = botConfig.idle_message || "I'm bored. What should I do?";
+		let idleTimer = null;
+
+		function resetIdleTimer() {
+			if (idleTimeoutSeconds <= 0) return; // Feature disabled
+			if (idleTimer) clearTimeout(idleTimer);
+
+			idleTimer = setTimeout(() => {
+			console.log(`[${botConfig.username}] Idle timeout triggered.`);
+			// Simulate a message from 'System' to make the bot do something.
+			const systemMessage = `${idleTimeoutSeconds} seconds has passed since interacting with a user: ${idleMessage}`;
+
+			// Determine who to "talk" to based on chat settings, prioritizing only_chat_with like in death handling.
+			if (onlyChatWith && onlyChatWith.length > 0) {
+				// Send private messages to users in only_chat_with list.
+				for (const name of onlyChatWith) {
+				handleUserMessage('System', systemMessage, { replyMode: 'msg', replyTo: name });
+				}
+			} else {
+				// If no only_chat_with, use public chat if enabled, else send msg (but this may not be ideal if no recipient).
+				handleUserMessage('System', systemMessage, { replyMode: usePublicChat ? 'public' : 'msg' });
+			}
+
+			}, idleTimeoutSeconds * 1000);
+		}
+
+           setMainCallbacks({
 			   clearChat: () => {
 				   conversation.length = 1; // keep system prompt only
 				   console.log(`[${botConfig.username}] Conversation history cleared.`);
@@ -147,14 +184,7 @@ function createBotForConfig(botConfig) {
 					   try { fs.writeFileSync(conversationFile, JSON.stringify(conversation, null, 2)); } catch (e) {}
 				   }
 				   bot.quit();
-			   },
-			   pushAssistantMessage: (msg) => {
-				   if (actionConversationFeedback) conversation.push({ role: 'assistant', content: msg });
-				   if (saveConversation) {
-					   try { fs.writeFileSync(conversationFile, JSON.stringify(conversation, null, 2)); } catch (e) {}
-				   }
-			   },
-			   shouldActionChatFeedback: () => actionChatFeedback
+			   }
 		   });
 		bot = mineflayer.createBot({
 			host: config.host,
@@ -162,6 +192,116 @@ function createBotForConfig(botConfig) {
 			username: botConfig.username,
 			version: config.minecraft_version ? config.minecraft_version.toString() : undefined
 		});
+
+		const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+		const { GoalNear, GoalBlock, GoalXZ, GoalY, GoalInvert, GoalFollow } = goals;
+		bot.loadPlugin(pathfinder);
+		let lastDeathPosition = null;
+		bot.once('spawn', () => {
+			const mcData = require('minecraft-data')(bot.version);
+			bot.pathfinder.setMovements(new Movements(bot, mcData));
+			resetIdleTimer(); // Start idle timer on spawn
+		});
+
+        bot.on('path_update', resetIdleTimer);
+        bot.on('diggingCompleted', resetIdleTimer);
+        bot.on('diggingAborted', resetIdleTimer);
+        bot.on('attack', resetIdleTimer);
+
+
+		// === Chat Mode and Filtering ===
+	const allBotNames = bots.map(b => b.username);
+	const onlyChatWith = Array.isArray(botConfig.only_chat_with)
+		? (botConfig.only_chat_with.length === 0 ? null : botConfig.only_chat_with.map(n => n.toLowerCase()))
+		: null;
+	const usePublicChat = botConfig.use_public_chat !== false;
+
+		// Helper: should we listen/respond to this username?
+		function shouldListenTo(username) {
+			if (allBotNames.includes(username)) return false; // ignore other bots
+			if (onlyChatWith) return onlyChatWith.includes(username.toLowerCase());
+			return true;
+		}
+
+		// Track last death position and auto-return after respawn (configurable)
+		const autoReturnOnDeath = (typeof botConfig.auto_return_on_death === 'boolean') ? botConfig.auto_return_on_death : false;
+		if (autoReturnOnDeath) {
+			bot.on('death', () => {
+				if (bot.entity && bot.entity.position) {
+					lastDeathPosition = bot.entity.position.clone();
+					console.log(`[${botConfig.username}] Died at: ` + lastDeathPosition);
+					resetIdleTimer(); // Reset idle timer on death
+				}
+			});
+			bot.on('spawn', () => {
+				if (lastDeathPosition) {
+					// Wait a short moment to ensure bot is ready
+					setTimeout(() => {
+						// Use public or private chat based on config and bot count
+						if (onlyChatWith && onlyChatWith.length > 0) {
+							for (const name of onlyChatWith) {
+								sendBotMessage('Returning to last death position...', {replyMode: 'msg', replyTo: name});
+							}
+						} else {
+							sendBotMessage('Returning to last death position...', {replyMode: usePublicChat ? 'public' : 'msg'});
+						}
+						bot.pathfinder.setGoal(new GoalNear(lastDeathPosition.x, lastDeathPosition.y, lastDeathPosition.z, 2));
+						// After reaching, look for items to pick up
+						const tryPickupItems = () => {
+							// Find dropped item entities within radius 5 of lastDeathPosition
+							const items = Object.values(bot.entities).filter(e => e.name === 'item' && e.position.distanceTo(lastDeathPosition) <= 5);
+							if (items.length === 0) {
+								if (onlyChatWith && onlyChatWith.length > 0) {
+									for (const name of onlyChatWith) {
+										sendBotMessage('No dropped items found at death location.', {replyMode: 'msg', replyTo: name});
+									}
+								} else {
+									sendBotMessage('No dropped items found at death location.', {replyMode: usePublicChat ? 'public' : 'msg'});
+								}
+								return;
+							}
+							let idx = 0;
+							const goToNextItem = () => {
+								if (idx >= items.length) {
+									if (onlyChatWith && onlyChatWith.length > 0) {
+										for (const name of onlyChatWith) {
+											sendBotMessage('Done picking up items at death location.', {replyMode: 'msg', replyTo: name});
+										}
+									} else {
+										sendBotMessage('Done picking up items at death location.', {replyMode: usePublicChat ? 'public' : 'msg'});
+									}
+									return;
+								}
+								const item = items[idx];
+								bot.pathfinder.setGoal(new GoalNear(item.position.x, item.position.y, item.position.z, 1));
+								// Wait until close, then try next
+								const checkArrived = setInterval(() => {
+									// Guard: item or item.position may be undefined if item was picked up or despawned
+									if (!item || !item.position) {
+										clearInterval(checkArrived);
+										setTimeout(() => {
+											idx++;
+											goToNextItem();
+										}, 600);
+										return;
+									}
+									if (bot.entity.position.distanceTo(item.position) < 1.5) {
+										clearInterval(checkArrived);
+										setTimeout(() => {
+											idx++;
+											goToNextItem();
+										}, 600);
+									}
+								}, 400);
+							};
+							goToNextItem();
+						};
+						// Wait a bit for pathfinder to reach the spot, then start pickup
+						setTimeout(tryPickupItems, 4000);
+					}, 1500);
+				}
+			});
+		}
 
 		// === Auto Look At Player Feature ===
 		const autoLook = (typeof botConfig.look_at_player === 'boolean') ? botConfig.look_at_player : true;
@@ -190,15 +330,234 @@ function createBotForConfig(botConfig) {
 				bot.on('end', () => { if (lookInterval) clearInterval(lookInterval); });
 			}
 
+        // === Auto Eat Feature ===
+        const autoEat = (typeof botConfig.auto_eat === 'boolean') ? botConfig.auto_eat : true;
+        let eatInterval = null;
+        if (autoEat) {
+		 bot.once('spawn', () => {
+				eatInterval = setInterval(async () => {
+					try {
+						// Emergency: If health is very low, try to eat healing item (e.g. golden_apple)
+						if (bot.health !== undefined && bot.health <= 8) { // 4 hearts or less
+							if (bot.health <= 6) {
+								// Say a warning message if health is 3 hearts or less
+								const dyingMessages = [
+									"I'm dying!",
+									"I'm almost dead!",
+									"I'm really low on health.",
+									"Help! I'm about to die!"
+								];
+								const randomMsg = dyingMessages[Math.floor(Math.random() * dyingMessages.length)];
+								if (onlyChatWith && onlyChatWith.length > 0) {
+									for (const name of onlyChatWith) {
+										sendBotMessage(randomMsg, {replyMode: 'msg', replyTo: name});
+									}
+								} else {
+									sendBotMessage(randomMsg, {replyMode: usePublicChat ? 'public' : 'msg'});
+								}
+							}
+							const healingItems = bot.inventory.items().filter(item =>
+								item.name === 'golden_apple' || item.name === 'enchanted_golden_apple'
+							);
+							if (healingItems.length > 0 && !bot.isEating) {
+								const healItem = healingItems[0];
+								await bot.equip(healItem, 'hand');
+								await bot.consume();
+								console.log(`[${botConfig.username}] Ate healing item: ${healItem.name} (health: ${bot.health})`);
+								return; // Don't eat normal food this tick
+							}
+						}
+                        // Only eat if hunger is not full and not already eating
+                        if (bot.food !== undefined && bot.food < 18 && !bot.isEating) {
+                            // Find best food in inventory
+                            const foods = bot.inventory.items().filter(item => {
+                                // Exclude non-foods and rotten flesh
+                                const foodEffect = bot.registry.foodsByName[item.name];
+                                return foodEffect && item.name !== 'rotten_flesh';
+                            });
+                            if (foods.length > 0) {
+                                // Pick the food with highest nutrition
+                                foods.sort((a, b) => {
+                                    const fa = bot.registry.foodsByName[a.name].foodPoints;
+                                    const fb = bot.registry.foodsByName[b.name].foodPoints;
+                                    return fb - fa;
+                                });
+                                const food = foods[0];
+                                await bot.equip(food, 'hand');
+                                await bot.consume();
+                                console.log(`[${botConfig.username}] Ate ${food.name} (hunger: ${bot.food})`);
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore errors (e.g. already eating)
+                    }
+                }, 3000);
+            });
+            bot.on('end', () => { if (eatInterval) clearInterval(eatInterval); });
+        }
+		
+
 		bot.on('login', () => {
 			reconnectAttempted = false;
 			console.log(`[Bot] Logged in as ${botConfig.username}`);
 			if (config.init_message) {
-				bot.chat(config.init_message);
+				sendBotMessage(config.init_message, {replyMode: usePublicChat ? 'public' : 'msg'});
 			}
 			
 
 		});
+
+		// === Auto Defense Feature ===
+		const autoDefense = (typeof botConfig.auto_defense === 'boolean') ? botConfig.auto_defense : true;
+		if (autoDefense) {
+			let currentTarget = null;
+			let attackInterval = null;
+
+			async function equipWeapon() {
+				// Try to equip sword first, then axe
+				const sword = bot.inventory.items().find(item => item.name.endsWith('_sword'));
+				if (sword) {
+					try {
+						await bot.equip(sword, 'hand');
+						console.log(`[${botConfig.username}] Equipped sword: ${sword.name}`);
+						return true;
+					} catch (e) {
+						console.log(`[${botConfig.username}] Failed to equip sword: ${e.message}`);
+					}
+				}
+				const axe = bot.inventory.items().find(item => item.name.endsWith('_axe'));
+				if (axe) {
+					try {
+						await bot.equip(axe, 'hand');
+						console.log(`[${botConfig.username}] Equipped axe: ${axe.name}`);
+						return true;
+					} catch (e) {
+						console.log(`[${botConfig.username}] Failed to equip axe: ${e.message}`);
+					}
+				}
+				console.log(`[${botConfig.username}] No sword or axe available to equip.`);
+				return false;
+			}
+
+			function stopAttacking() {
+				if (attackInterval) {
+					clearInterval(attackInterval);
+					attackInterval = null;
+				}
+				currentTarget = null;
+				bot.pathfinder.setGoal(null);
+			}
+
+			bot.on('entityGone', (entity) => {
+				if (currentTarget && entity.id === currentTarget.id) {
+					console.log(`[${botConfig.username}] Target is gone, stopping attack.`);
+					stopAttacking();
+				}
+			});
+
+			bot.on('entityHurt', (entity) => {
+				// Only defend if the bot itself is hurt
+				if (entity === bot.entity) {
+					console.log(`[${botConfig.username}] Bot was hurt! Health: ${bot.health}`);
+					resetIdleTimer(); // Reset idle timer when hurt
+
+					// Find nearby hostile mobs (ignore players)
+					const hostileNames = [
+						'blaze', 'bogged', 'breeze',
+						'creaking', 'creeper',
+						'elder_guardian', 'ender_dragon', 'endermite', 'evoker',
+						'ghast', 'guardian',
+						'hoglin', 'husk',
+						'illusioner',
+						'magma_cube',
+						'phantom', 'piglin_brute', 'pillager',
+						'ravager', 'shulker', 'silverfish', 'skeleton', 'slime', 'stray',
+						'vex', 'vindicator',
+						'warden', 'witch', 'wither', 'wither_skeleton',
+						'zoglin', 'zombie', 'zombie_villager'
+					];
+					// Optionally include 'player' as hostile if attack_player is true
+					const attackPlayer = botConfig.attack_player === true;
+					if (attackPlayer) hostileNames.push('player');
+					const nearbyHostiles = Object.values(bot.entities).filter(e => {
+						if (e === bot.entity) return false;
+						const distance = e.position.distanceTo(bot.entity.position);
+						return distance <= 8 && hostileNames.includes(e.name);
+					});
+
+					if (nearbyHostiles.length > 0) {
+						// Find the closest hostile mob
+						let closest = nearbyHostiles[0];
+						let minDist = closest.position.distanceTo(bot.entity.position);
+						for (const e of nearbyHostiles) {
+							const dist = e.position.distanceTo(bot.entity.position);
+							if (dist < minDist) {
+								closest = e;
+								minDist = dist;
+							}
+						}
+
+						console.log(`[${botConfig.username}] Defending against mob: ${closest.name}`);
+
+						// If already attacking this target, do nothing
+						if (currentTarget && currentTarget.id === closest.id) return;
+
+						stopAttacking();
+						currentTarget = closest;
+
+						// Announce fighting
+						const fightMessages = [
+							`Fighting ${closest.name}!`,
+							`Attacking ${closest.name}!`,
+							`Getting revenge on ${closest.name}!`,
+							`This annoying ${closest.name} hit me.`
+						];
+						const fightMsg = fightMessages[Math.floor(Math.random() * fightMessages.length)];
+						if (onlyChatWith && onlyChatWith.length > 0) {
+							for (const name of onlyChatWith) {
+								sendBotMessage(fightMsg, {replyMode: 'msg', replyTo: name});
+							}
+						} else {
+							sendBotMessage(fightMsg, {replyMode: usePublicChat ? 'public' : 'msg'});
+						}
+
+						// Attack until mob is dead or far away
+						attackInterval = setInterval(async () => {
+							if (!currentTarget || !bot.entities[currentTarget.id]) {
+								console.log(`[${botConfig.username}] Target is dead or gone.`);
+								stopAttacking();
+								return;
+							}
+							const dist = bot.entity.position.distanceTo(currentTarget.position);
+							if (dist > 12) {
+								console.log(`[${botConfig.username}] Target ran away.`);
+								stopAttacking();
+								return;
+							}
+							if (bot.health > 6) {
+								bot.pathfinder.setGoal(new GoalNear(currentTarget.position.x, currentTarget.position.y, currentTarget.position.z, 1));
+								if (dist <= 3) {
+									await equipWeapon();
+									bot.attack(currentTarget);
+									console.log(`[${botConfig.username}] Attacking mob: ${currentTarget.name}`);
+								}
+							} else {
+								// Run away if health is low
+								const awayX = bot.entity.position.x + (bot.entity.position.x - currentTarget.position.x) * 2;
+								const awayZ = bot.entity.position.z + (bot.entity.position.z - currentTarget.position.z) * 2;
+								bot.pathfinder.setGoal(new GoalXZ(awayX, awayZ));
+								console.log(`[${botConfig.username}] Running away from mob: ${currentTarget.name}`);
+								stopAttacking();
+							}
+						}, 1000);
+					} else {
+						console.log(`[${botConfig.username}] Hurt but no hostile mob found nearby`);
+					}
+				}
+			});
+
+			bot.on('end', stopAttacking);
+			}
 
 		bot.on('error', (err) => {
 			if (!reconnectAttempted) {
@@ -209,19 +568,20 @@ function createBotForConfig(botConfig) {
 		bot.on('end', (reason) => {
 			const msg = reason ? `[Bot ${botConfig.username}] Disconnected: ${reason}` : `[Bot ${botConfig.username}] Disconnected.`;
 			console.log(msg);
-			if (!reconnectAttempted) {
-				reconnectAttempted = true;
-				console.log(`[Bot ${botConfig.username}] Attempting reconnect in 5 seconds...`);
-				setTimeout(() => {
-					try {
-						createBot();
-					} catch (e) {
-						console.error(`[Bot ${botConfig.username}] Couldn't reconnect: `, e.message || e);
-					}
-				}, 5000);
-			} else {
-				console.error(`[Bot ${botConfig.username}] Couldn't reconnect: previous attempt failed.`);
-			}
+			if (idleTimer) clearTimeout(idleTimer); // Stop idle timer on disconnect
+            if (!reconnectAttempted) {
+                reconnectAttempted = true;
+                console.log(`[Bot ${botConfig.username}] Attempting reconnect in 5 seconds...`);
+                setTimeout(() => {
+                    try {
+                        createBot();
+                    } catch (e) {
+                        console.error(`[Bot ${botConfig.username}] Couldn't reconnect: `, e.message || e);
+                    }
+                }, 5000);
+            } else {
+                console.error(`[Bot ${botConfig.username}] Couldn't reconnect: previous attempt failed.`);
+            }
 		});
 
 		// === Chat/Message Handling ===
@@ -238,16 +598,11 @@ function createBotForConfig(botConfig) {
 			}
 		}
 
-		// Info commands to handle specially
-		const infoCommands = ['stats', 'inventory', 'nearbyBlocks', 'entities', 'savedPlaces', 'viewChest'];
+		// Query commands to handle specially
+		const queryCommands = ['stats', 'inventory', 'nearbyBlocks', 'entities', 'savedPlaces', 'viewChest'];
 
-        function extractInfoCommand(message) {
-            // Returns info command name if present, else null
-            const match = message.match(/!(\w+)(?:\(|$|\s)/);
-            if (match && infoCommands.includes(match[1])) return match[1];
-            return null;
-        }
 		async function handleUserMessage(username, message) {
+			resetIdleTimer(); // Any user message is activity
 			console.log(`[${bot.username}] Request received from ${username}: ${message}`);
 			   conversation.push({ role: 'user', content: `${username}: ${message}` });
 			   if (saveConversation) {
@@ -268,37 +623,48 @@ function createBotForConfig(botConfig) {
 			   if (saveConversation) {
 				   try { fs.writeFileSync(conversationFile, JSON.stringify(conversation, null, 2)); } catch (e) {}
 			   }
-			await sendMsgToUser(username, reply);
-			console.log(`[${bot.username}] Responded to ${username}: ${reply}`);
+			// Determine reply mode (public or msg)
+			let replyMode = 'public';
+			let replyTo = username;
+			if (arguments.length > 2 && arguments[2]) {
+				if (arguments[2].replyMode === 'msg') replyMode = 'msg';
+				if (arguments[2].replyTo) replyTo = arguments[2].replyTo;
+			}
+			if (replyMode === 'msg') {
+				await sendMsgToUser(replyTo, reply);
+			} else {
+				sendBotMessage(reply, {replyMode: 'public'});
+			}
+		console.log(`[${bot.username}] Responded to ${username} (${replyMode}): ${reply}`);
 
-			// Check for info commands (handle multiple)
-			let foundInfoCommands = [];
+			// Check for query commands (handle multiple)
+			let foundQueryCommands = [];
 			const commandRegex = /!(\w+)(?:\(|\s|$)/g;
 			let match;
 			while ((match = commandRegex.exec(reply)) !== null) {
 				console.log(`[${bot.username}] Found command: ${match[1]}`);
-				if (infoCommands.includes(match[1])) {
-					foundInfoCommands.push(match[1]);
-					console.log(`[${bot.username}] Added info command: ${match[1]}`);
+				if (queryCommands.includes(match[1])) {
+					foundQueryCommands.push(match[1]);
+					console.log(`[${bot.username}] Added query command: ${match[1]}`);
 				}
 			}
 			
-			console.log(`[${bot.username}] Total info commands found: ${foundInfoCommands.length}`);
+			console.log(`[${bot.username}] Total query commands found: ${foundQueryCommands.length}`);
 			
-			if (foundInfoCommands.length > 0) {
-				// Run all info commands, append results to convo (not shown to user)
-				for (const infoCmd of foundInfoCommands) {
-					const infoResult = await handleInfoCommand(bot, infoCmd, username);
-					if (infoResult) {
-						console.log(`[${bot.username}] Info command result (${infoCmd}): ${infoResult}`);
-						   conversation.push({ role: 'assistant', content: `${infoCmd}: ${infoResult}` });
+			if (foundQueryCommands.length > 0) {
+				// Run all query commands, append results to convo (not shown to user)
+				for (const queryCmd of foundQueryCommands) {
+					const queryResult = await handleQueryCommand(bot, queryCmd, username);
+					if (queryResult) {
+						console.log(`[${bot.username}] Query command result (${queryCmd}): ${queryResult}`);
+						   conversation.push({ role: 'assistant', content: `${queryCmd}: ${queryResult}` });
 						   if (saveConversation) {
 							   try { fs.writeFileSync(conversationFile, JSON.stringify(conversation, null, 2)); } catch (e) {}
 						   }
 					}
 				}
 				
-				// Now, ask LLM for a final response with all the info included
+				// Now, ask LLM for a final response with all the query results included
 				let finalReply = '';
 				try {
 					// Get an initial final reply
@@ -338,29 +704,39 @@ function createBotForConfig(botConfig) {
 					console.error(`[${bot.username}] Error while executing commands from final reply:`, e.message || e);
 				}
 				console.log(`[${bot.username}] Final reply: ${finalReply}`);
-				await sendMsgToUser(username, finalReply);
+				if (replyMode === 'msg') {
+					await sendMsgToUser(username, finalReply);
+				} else {
+					sendBotMessage(finalReply, {replyMode: 'public'});
+				}
 				   conversation.push({ role: 'assistant', content: finalReply });
 				   if (saveConversation) {
 					   try { fs.writeFileSync(conversationFile, JSON.stringify(conversation, null, 2)); } catch (e) {}
 				   }
 			} else {
-				// Parse and execute other commands (only if not an info command)
+				// Parse and execute other commands (only if not a query command)
 				parseAndExecuteCommands(bot, reply, username);
 			}
 		}
 
-		if (bots.length === 1) {
-			// Single bot: respond to global chat
+		// --- Chat event handling ---
+		// Always listen for /msg (whisper)
+		bot.on('whisper', (username, message) => {
+			if (username === bot.username) return;
+			if (!shouldListenTo(username)) return;
+			handleUserMessage(username, message, {replyMode: 'msg', replyTo: username});
+		});
+
+		// Listen to public chat if allowed
+	if (usePublicChat) {
 			bot.on('chat', (username, message) => {
 				if (username === bot.username) return;
-				handleUserMessage(username, message);
-			});
-		} else if (bots.length === 2) {
-			// Two bots: only respond to /msg <botname> <message>
-			bot.on('whisper', (username, message) => {
-				if (username === bot.username) return;
-				console.log(`[${bot.username}] Whisper received from ${username}: ${message}`);
-				handleUserMessage(username, message);
+				if (!shouldListenTo(username)) return;
+				// Ignore other bots
+				if (allBotNames.includes(username)) return;
+				// If only one bot, always respond in public chat unless message was a /msg
+				// If multiple bots, ignore other bots and respond in public chat
+				handleUserMessage(username, message, {replyMode: 'public'});
 			});
 		}
 	}

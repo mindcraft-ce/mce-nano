@@ -4,28 +4,46 @@ port: 55916
 
 bots:
   - username: Nano # bot's Minecraft username
-    model: auto # model name (e.g., gpt-4o-mini, gemini-2.5-flash)
+    model: auto # model name (e.g., gpt-4o-mini, gemini-2.5-flash). Andy API accepts "auto"
     provider: andy # model provider (e.g., openai, gemini, ollama). Set to Andy API by default
-    personality: "You are helpful and friendly." # short description of how the bot should behave
-    look_at_player: true # whether this bot should auto-look at nearby players
-    save_conversation: false # if true, save conversation history to a file and reload on restart
-    action_chat_feedback: false # send command outputs in Minecraft (e.g. "No zombie found nearby to attack" when using !attack). This may clutter the chat.
-    action_conversation_feedback: false # add command outputs to conversation history. This gives the model slightly extra context on the current situation.
+    personality: "You are playful and friendly." # short description of how the bot should behave
+    look_at_player: true # auto-look at nearby players
+    auto_eat: true # auto-eat food when hungry and consume healing items when low on health
+    auto_defense: true # auto-defend itself from hostiles when attacked
+    attack_player: false # attack players when provoked. This may cause the bot to attack you even if you don't want it to.
+    auto_return_on_death: true # automatically return to last death position
+    save_conversation: false # if true, save conversation history to a file and reload on restart. Warning: the file does not auto-trim and may grow large over time
+    use_public_chat: true # if false, bot will only respond to /msg and never to public chat
+    only_chat_with: [] # restrict bot to only listen/respond to these player names
+    idle_timeout_seconds: 60 # if > 0, bot will perform an action after this many seconds of inactivity
+    idle_message: "Keep doing stuff!" # the message to process when the idle timeout is reached
 
   # - username: GPT
-  #   model: gpt-4o-mini
+  #   model: gpt-4o-mini # RECOMMENDATION: this budget model has had the best performance in testing! Give it a try if other models aren't behaving well
   #   provider: openai
   #   personality: "Act like a chill bro that uses slang."
   #   look_at_player: true
+  #   auto_eat: true
+  #   auto_defense: true
+  #   attack_player: false
+  #   auto_return_on_death: true
   #   save_conversation: false
-  #   action_chat_feedback: false
-  #   action_conversation_feedback: true
+  #   use_public_chat: true
+  #   only_chat_with: []
+  #   idle_timeout_seconds: 60
+  #   idle_message: "Keep doing stuff!"
 
   # - username: Andy
-  #   model: sweaterdog/andy-4:latest # ATTENTION: Sweaterdog's Andy models are not fully supported. Use at your own risk.
+  #   model: sweaterdog/andy-4:latest # ATTENTION: Sweaterdog's Andy models are not fully supported. Use at your own risk
   #   provider: ollama
   #   personality: "Mine. Craft. Conquer."
   #   look_at_player: true
-  #   save_conversation: true
-  #   action_chat_feedback: true
-  #   action_conversation_feedback: false
+  #   auto_eat: true
+  #   auto_defense: true
+  #   attack_player: false
+  #   auto_return_on_death: true
+  #   save_conversation: false
+  #   use_public_chat: true
+  #   only_chat_with: []
+  #   idle_timeout_seconds: 0
+  #   idle_message: "Keep doing stuff!"
