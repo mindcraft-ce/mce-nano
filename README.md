@@ -39,19 +39,26 @@ The open-source platform for crafting intelligent, collaborative agents in Minec
 
 ## Feature Comparison
 
-| Feature                | mindcraft-ce (Community Edition) | mce-nano (Nano Edition)      |
-|------------------------|:--------------------------------:|:----------------------------:|
-| **Development Status** | Active                           | **Active**                   |
-| **Minecraft Version**  | Up to 1.21.4                     | Up to **1.21.6**             |
-| **Node.js Version**    | v18+                             | **v18+**                     |
-| **Multi-Bot**          | Yes                              | **Yes**                      |
-| **Conversation Save**  | Yes                              | **Yes (per-bot toggle)**     |
-| **Plugin System**      | Yes                              | No (minimal core)            |
-| **Pathfinding**        | Enhanced                         | Standard (mineflayer)        |
-| **Model Providers**    | Many                             | **Many**                     |
-| **Docker Support**     | Yes                              | **Yes**                      |
-| **Resource Usage**     | Moderate                         | **Ultra-lightweight**        |
-| **Extensibility**      | High                             | Simple, easy to fork         |
+| Feature                | mindcraft-ce (Community Edition) | mce-nano (Nano Edition)          |
+|------------------------|:--------------------------------:|:--------------------------------:|
+| **Development Status** | Active                           | **Active**                       |
+| **Minecraft Version**  | Up to 1.21.6                    | Up to **1.21.6**                |
+| **Node.js Version**    | v18+ (v22 recommended)          | **v18+**                         |
+| **Setup Complexity**   | Complex (many dependencies)     | **Minimal (essential deps only)**|
+| **Multi-Bot Support**  | Yes                              | **Yes (per-bot configs)**        |
+| **Auto-Actions**       | Manual commands                  | **Auto-eat, auto-defense, idle actions** |
+| **Chat Restrictions**  | Global only                      | **Public/private + player whitelist** |
+| **Resource Usage**     | High (full feature set)         | **Ultra-lightweight**            |
+| **Memory Footprint**   | Large codebase                   | **Minimal core**                 |
+| **Docker Image Size**  | ~500MB+                          | **<200MB**                       |
+| **Plugin System**      | Complex plugin architecture     | **Simple, hackable core**        |
+| **Learning Curve**     | Steep (many features)           | **Gentle (focused essentials)**  |
+| **Fork Friendly**      | Heavy customization required    | **Easy to modify & extend**      |
+| **Boot Time**          | Slower startup                   | **Fast startup**                 |
+| **Model Providers**    | 15+ providers                    | **10+ essential providers**      |
+| **Low-End Hardware**   | Struggles on weak systems       | **Optimized for Raspberry Pi+**  |
+| **Configuration**      | Multiple config files           | **Single config.yml**            |
+| **Ideal For**          | Production & feature-rich bots  | **Learning, prototyping, servers**|
 
 ## Requirements
 
@@ -96,7 +103,7 @@ The open-source platform for crafting intelligent, collaborative agents in Minec
 - **Bots:** Each entry in config.yml under `bots:` defines a bot with its own username, model, provider, and options.
 - **Providers:** Supported providers include OpenAI, Gemini, Andy API, Ollama, Pollinations, and more.
 - **Conversation:** Enable `save_conversation: true` to persist chat history for each bot.
-- **Feedback:** Control in-game and conversation feedback with `action_chat_feedback` and `action_conversation_feedback`.
+- **Interactive:** `idle_timeout_seconds` and `idle_message` can make the bot active when nothing is happening.
 
 See the comments in config.yml for more details.
 
@@ -117,7 +124,6 @@ Parameters can be quoted or unquoted, and the parser is flexible.
 ## Credits
 
 Maintained by [@uukelele-scratch](https://github.com/uukelele-scratch), [@Sweaterdog](https://github.com/sweaterdog), [@riqvip](https://github.com/riqvip), [@MrElmida](https://github.com/mrelmida), and the community.
-
 
 ## License
 
